@@ -1,0 +1,6 @@
+data
+.env
+.sops.yaml
+.idea
+*.pprof
+*.test
