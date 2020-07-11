@@ -39,6 +39,52 @@ func NewPageReader(r io.Reader) *PageReader {
 
 var ErrInvalidFile = errors.New("invalid file")
 
+type MultiPageReader struct {
+	r io.ReadSeeker
+}
+
+// NewMultiPageReader returns a new page reader reading from r.
+//
+// The provided reader is expected to read plaintext XML from
+// the multi-stream Wikipedia database download.
+//
+// To read from a bzip2 file, open the file like so:
+//
+// 	f, err := os.OpenFile("path/to/file.xml.bzip2", os.O_RDONLY, 0644)
+// 	if err != nil {
+// 		log.Fatalln(err)
+// 	}
+// 	bz := bzip2.NewReader(f)
+// 	r := wikirel.NewMultiPageReader(bz)
+//
+func NewMultiPageReader(r io.ReadSeeker) *MultiPageReader {
+	return &MultiPageReader{
+		r: r,
+	}
+}
+
+// ReadChunkFromOffset puts the next chunk of pages into the provided slice.
+// If the slice cannot fit into the provided pages slice, a new slice will be created.
+func (r *MultiPageReader) ReadChunkFromOffset(offset int64, count int, pages []Page) ([]Page, error) {
+	// Create new slice if necessary
+	if cap(pages) < count {
+		pages = make([]Page, count, count)
+	}
+	pages = pages[:count]
+
+	if _, err := r.r.Seek(offset, 0); err != nil {
+		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrParseFailed, err)
+	}
+	dec := xml.NewDecoder(r.r)
+
+	// Decode pages until end of chunk
+	for i := 0; i < count; i++ {
+		dec.Decode(&pages[i])
+	}
+
+	return pages, nil
+}
+
 // Read returns the next page from the reader.
 // If there are no more pages, io.EOF is returned.
 func (r *PageReader) Read(p *Page) error {
@@ -72,7 +118,7 @@ func (r *PageReader) Read(p *Page) error {
 type PageIndexBlock struct {
 	// Offset denotes the number of bytes from the start of the articles file
 	// to where the index block begins.
-	Offset uint64
+	Offset int64
 
 	// Count is the number of articles in the index block.
 	Count int
@@ -80,7 +126,7 @@ type PageIndexBlock struct {
 
 type PageIndexBlockReader struct {
 	scanner    *bufio.Scanner
-	prevOffset uint64
+	prevOffset int64
 	pageCount  int
 	done       bool
 }
@@ -169,10 +215,10 @@ var ErrInvalidOffset = errors.New("invalid offset")
 // parseIndexRow parses one row from the index summary file
 // Each row is on the format: "offset:articleID:articleName", e.g.
 // "10:592:Andorra"
-func parseOffset(s string) (uint64, error) {
+func parseOffset(s string) (int64, error) {
 	for idx, ch := range s {
 		if ch == ':' {
-			offset, err := strconv.ParseUint(s[:idx], 10, 64)
+			offset, err := strconv.ParseInt(s[:idx], 10, 64)
 			if err != nil {
 				return 0, ErrInvalidOffset
 			}

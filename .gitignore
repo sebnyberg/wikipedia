@@ -6,3 +6,6 @@ data
 *.test
 tmp
 wikirel
+.vscode
+cmd/playground
+main
