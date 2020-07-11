@@ -1,12 +1,13 @@
 package main
 
 import (
+	"compress/bzip2"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"time"
 
-	"github.com/pkg/profile"
 	"github.com/sebnyberg/wikirel"
 )
 
@@ -16,10 +17,14 @@ func main() {
 		log.Println("Elapsed time: ", time.Now().Sub(start))
 	}(time.Now())
 
-	// Profile CPU usage
-	defer profile.Start(profile.CPUProfile, profile.ProfilePath(".")).Stop()
+	// // Profile CPU usage
+	// defer profile.Start(profile.CPUProfile, profile.ProfilePath(".")).Stop()
 
-	r, err := wikirel.NewPageReaderFromFile("tmp/regular-part1.xml.bz2")
+	f, err := os.OpenFile("tmp/regular-part1.xml.bz2", os.O_RDONLY, 0644)
+	check(err)
+	bz := bzip2.NewReader(f)
+
+	r := wikirel.NewPageReader(bz)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -27,7 +32,7 @@ func main() {
 	var p = new(wikirel.Page)
 	count := 0
 	for ; ; count++ {
-		if err := r.ReadInto(p); err != nil {
+		if err := r.Read(p); err != nil {
 			if err == io.EOF {
 				break
 			}
@@ -39,4 +44,10 @@ func main() {
 	}
 
 	log.Printf("Done! Read %v files\n", count)
+}
+
+func check(err error) {
+	if err != nil {
+		log.Fatalln(err)
+	}
 }

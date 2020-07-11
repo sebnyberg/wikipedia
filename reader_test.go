@@ -2,7 +2,6 @@ package wikirel_test
 
 import (
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -19,47 +18,33 @@ func Test_PageReader(t *testing.T) {
 		err  error
 	}
 
+	nilPage := new(wikirel.Page)
+
 	for _, tc := range []struct {
 		name  string
 		input string
 		want  []result
 	}{
-		{"empty input", "", []result{{nil, wikirel.ErrParseFailed}}},
-		{"invalid input", "abc123", []result{{nil, wikirel.ErrParseFailed}}},
+		{"empty input", "", []result{{nilPage, wikirel.ErrParseFailed}}},
+		{"invalid input", "abc123", []result{{nilPage, wikirel.ErrParseFailed}}},
 		{"download example", downloadContents, []result{
 			{&accessibleComputingPage, nil},
 			{&anarchismPage, nil},
-			{nil, io.EOF},
+			{nilPage, io.EOF},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.input)
-			parser := wikirel.NewPageReader(r)
+			pageReader := wikirel.NewPageReader(r)
 			for _, expected := range tc.want {
-				p, err := parser.Read()
+				p := new(wikirel.Page)
+				err := pageReader.Read(p)
 				if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikirel.Page{}, "Text")) {
 					t.Errorf("expected page did not match result\n%v", cmp.Diff(expected.page, p))
 				}
 				if !cmp.Equal(err, expected.err, cmpopts.EquateErrors()) {
 					t.Errorf("invalid err, expected: %v, got: %v\n", expected.err, err)
 				}
-			}
-		})
-	}
-}
-
-func Test_NewPageReaderFromFile(t *testing.T) {
-	for _, tc := range []struct {
-		filename    string
-		expectedErr error
-	}{
-		{"somefile.xml", wikirel.ErrInvalidFile},
-		{"", wikirel.ErrInvalidFile},
-	} {
-		t.Run(tc.filename, func(t *testing.T) {
-			_, err := wikirel.NewPageReaderFromFile(tc.filename)
-			if !errors.Is(err, tc.expectedErr) {
-				t.Fatalf("invalid err, expected: %v, got: %v", tc.expectedErr, err)
 			}
 		})
 	}
@@ -93,9 +78,10 @@ func Benchmark_PageReader_Read(b *testing.B) {
 		b.StopTimer()
 		r := wikirel.NewPageReader(strings.NewReader(anarchistWikipedia))
 		b.StartTimer()
-		pages := make([]*wikirel.Page, 0)
+		pages := make([]wikirel.Page, 0)
 		for {
-			p, err := r.Read()
+			var p wikirel.Page
+			err := r.Read(&p)
 			if err != nil {
 				if err == io.EOF {
 					break
@@ -104,6 +90,52 @@ func Benchmark_PageReader_Read(b *testing.B) {
 			}
 			pages = append(pages, p)
 		}
+	}
+}
+
+func Test_PageIndexBlockReader(t *testing.T) {
+	type result struct {
+		indexBlock *wikirel.PageIndexBlock
+		err        error
+	}
+
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  []result
+	}{
+		{"empty input", "", []result{{nil, io.EOF}}},
+		{"incomplete row", "abc123", []result{{nil, wikirel.ErrBadRecord}}},
+		{
+			"valid indexes",
+			`1:10:A
+1:11:B
+1:12:C
+2:13:D
+2:14:E
+2:15:F
+3:16:G`,
+			[]result{
+				{&wikirel.PageIndexBlock{1, 3}, nil},
+				{&wikirel.PageIndexBlock{2, 3}, nil},
+				{&wikirel.PageIndexBlock{3, 1}, io.EOF},
+				{nil, io.EOF},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := strings.NewReader(tc.input)
+			indexReader := wikirel.NewPageIndexBlockReader(r)
+			for _, expected := range tc.want {
+				got, err := indexReader.Read()
+				if !cmp.Equal(expected.indexBlock, got) {
+					t.Errorf("invalid index, expected / got\n%v\n", cmp.Diff(expected.indexBlock, got))
+				}
+				if !cmp.Equal(expected.err, err, cmpopts.EquateErrors()) {
+					t.Errorf("invalid err, expected: %v, got: %v\n", expected.err, err)
+				}
+			}
+		})
 	}
 }
 
