@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 )
 
 // PageReader reads Wikipedia pages from an input stream.
@@ -128,7 +129,6 @@ type PageIndexBlockReader struct {
 	scanner    *bufio.Scanner
 	prevOffset int64
 	pageCount  int
-	done       bool
 }
 
 // NewPageIndexBlockReader returns a reader that returns index blocks
@@ -212,7 +212,7 @@ func (r *PageIndexBlockReader) Read() (*PageIndexBlock, error) {
 var ErrBadRecord = errors.New("bad record")
 var ErrInvalidOffset = errors.New("invalid offset")
 
-// parseIndexRow parses one row from the index summary file
+// parseOffset parses one row from the index summary file
 // Each row is on the format: "offset:articleID:articleName", e.g.
 // "10:592:Andorra"
 func parseOffset(s string) (int64, error) {
@@ -227,4 +227,80 @@ func parseOffset(s string) (int64, error) {
 	}
 
 	return 0, ErrBadRecord
+}
+
+// PageIndex points to a block of articles in the multi-stream articles file.
+type PageIndex struct {
+	// Offset denotes the number of bytes from the start of the articles file
+	// to where the index block begins.
+	Offset int64
+
+	// ID of the page
+	ID int64
+
+	// Title of the page
+	Title string
+}
+
+type PageIndexReader struct {
+	scanner *bufio.Scanner
+}
+
+// PageIndexReader returns a reader that reads indices from the file.
+//
+// The provided reader is expected to read from a multi-index file.
+//
+// When using the multi-stream index file to read from the multi-stream
+// articles file - use the PageIndexBlockReader.
+//
+// To use the bzipped Wikipedia extract, use this function like so:
+//
+//	f, err := os.OpenFile("path/to/some-multi-stream-index.txt.bz2", os.O_RDONLY, 0644)
+//	if err != nil {
+//		log.Fatalln(err)
+//	}
+//	bz := bzip2.NewReader(f)
+//	r := wikirel.NewPageIndexBlockReader(bz)
+//
+func NewPageIndexReader(r io.Reader) *PageIndexReader {
+	return &PageIndexReader{
+		scanner: bufio.NewScanner(r),
+	}
+}
+
+// Read returns the next index from the file.
+// If there are no more indices, io.EOF is returned.
+func (r *PageIndexReader) Read(index *PageIndex) error {
+	if !r.scanner.Scan() {
+		// Err() returns nil if EOF
+		if err := r.scanner.Err(); err != nil {
+			return err
+		}
+		return io.EOF
+	}
+
+	parts := strings.SplitN(r.scanner.Text(), ":", 3)
+	if len(parts) != 3 {
+		return ErrBadRecord
+	}
+	var err error
+	index.Offset, err = strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("offset %w, err: %v", ErrParseFailed, err)
+	}
+	index.ID, err = strconv.ParseInt(parts[1], 10, 32)
+	if err != nil {
+		return fmt.Errorf("ID %w, err: %v", ErrParseFailed, err)
+	}
+	index.Title = parts[2]
+
+	return nil
+}
+
+// parseIndexRow parses one row from the index summary file
+// Each row is on the format: "offset:articleID:articleName", e.g.
+// "10:592:Andorra"
+func parseIndexRow(s string) (*PageIndex, error) {
+
+	return nil, ErrBadRecord
 }

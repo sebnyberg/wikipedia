@@ -139,6 +139,57 @@ func Test_PageIndexBlockReader(t *testing.T) {
 	}
 }
 
+func Test_PageIndexReader(t *testing.T) {
+	type result struct {
+		index *wikirel.PageIndex
+		err   error
+	}
+
+	nilIndex := new(wikirel.PageIndex)
+
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  []result
+	}{
+		{"empty input", "", []result{{nilIndex, io.EOF}}},
+		{"incomplete row", "abc123", []result{{nilIndex, wikirel.ErrBadRecord}}},
+		{
+			"valid indexes",
+			`1:10:A
+1:11:B
+1:12:C
+2:13:D
+2:15:F
+3:16:G`,
+			[]result{
+				{&wikirel.PageIndex{1, 10, "A"}, nil},
+				{&wikirel.PageIndex{1, 11, "B"}, nil},
+				{&wikirel.PageIndex{1, 12, "C"}, nil},
+				{&wikirel.PageIndex{2, 13, "D"}, nil},
+				{&wikirel.PageIndex{2, 15, "E"}, nil},
+				{&wikirel.PageIndex{3, 16, "F"}, nil},
+				{nilIndex, io.EOF},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := strings.NewReader(tc.input)
+			indexReader := wikirel.NewPageIndexReader(r)
+			for _, expected := range tc.want {
+				got := new(wikirel.PageIndex)
+				err := indexReader.Read(got)
+				if !cmp.Equal(expected.index, got) {
+					t.Errorf("invalid index, expected / got\n%v\n", cmp.Diff(expected.index, got))
+				}
+				if !cmp.Equal(expected.err, err, cmpopts.EquateErrors()) {
+					t.Errorf("invalid err, expected: %v, got: %v\n", expected.err, err)
+				}
+			}
+		})
+	}
+}
+
 const siteInfo = `<siteinfo>
 	<sitename>Wikipedia</sitename>
 	<dbname>enwiki</dbname>
