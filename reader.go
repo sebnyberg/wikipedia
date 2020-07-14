@@ -2,6 +2,7 @@ package wikirel
 
 import (
 	"bufio"
+	"compress/bzip2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,13 +11,27 @@ import (
 	"strings"
 )
 
-// PageReader reads Wikipedia pages from an input stream.
-type PageReader struct {
-	dec           *xml.Decoder
-	headerSkipped bool
-}
-
 var ErrParseFailed = errors.New("parse failed")
+var ErrInvalidFile = errors.New("invalid file")
+
+// ReadPagesFromOffset puts the next chunk of pages into the provided slice.
+// If the slice cannot fit into the provided pages slice, a new slice will be created.
+func ReadPagesFromOffset(r io.ReadSeeker, offset int64, count int) ([]Page, error) {
+	pages := make([]Page, count)
+
+	if _, err := r.Seek(offset, 0); err != nil {
+		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrParseFailed, err)
+	}
+	bz := bzip2.NewReader(r)
+	dec := xml.NewDecoder(bz)
+
+	// Decode pages until end of chunk
+	for i := 0; i < count; i++ {
+		dec.Decode(&pages[i])
+	}
+
+	return pages, nil
+}
 
 // NewPageReader returns a new page reader reading from r.
 //
@@ -38,52 +53,10 @@ func NewPageReader(r io.Reader) *PageReader {
 	}
 }
 
-var ErrInvalidFile = errors.New("invalid file")
-
-type MultiPageReader struct {
-	r io.ReadSeeker
-}
-
-// NewMultiPageReader returns a new page reader reading from r.
-//
-// The provided reader is expected to read plaintext XML from
-// the multi-stream Wikipedia database download.
-//
-// To read from a bzip2 file, open the file like so:
-//
-// 	f, err := os.OpenFile("path/to/file.xml.bzip2", os.O_RDONLY, 0644)
-// 	if err != nil {
-// 		log.Fatalln(err)
-// 	}
-// 	bz := bzip2.NewReader(f)
-// 	r := wikirel.NewMultiPageReader(bz)
-//
-func NewMultiPageReader(r io.ReadSeeker) *MultiPageReader {
-	return &MultiPageReader{
-		r: r,
-	}
-}
-
-// ReadChunkFromOffset puts the next chunk of pages into the provided slice.
-// If the slice cannot fit into the provided pages slice, a new slice will be created.
-func (r *MultiPageReader) ReadChunkFromOffset(offset int64, count int, pages []Page) ([]Page, error) {
-	// Create new slice if necessary
-	if cap(pages) < count {
-		pages = make([]Page, count, count)
-	}
-	pages = pages[:count]
-
-	if _, err := r.r.Seek(offset, 0); err != nil {
-		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrParseFailed, err)
-	}
-	dec := xml.NewDecoder(r.r)
-
-	// Decode pages until end of chunk
-	for i := 0; i < count; i++ {
-		dec.Decode(&pages[i])
-	}
-
-	return pages, nil
+// PageReader reads Wikipedia pages from an input stream.
+type PageReader struct {
+	dec           *xml.Decoder
+	headerSkipped bool
 }
 
 // Read returns the next page from the reader.
@@ -127,8 +100,8 @@ type PageIndexBlock struct {
 
 type PageIndexBlockReader struct {
 	scanner    *bufio.Scanner
-	prevOffset int64
-	pageCount  int
+	prevoffset int64
+	npages     int
 }
 
 // NewPageIndexBlockReader returns a reader that returns index blocks
@@ -151,62 +124,52 @@ func NewPageIndexBlockReader(r io.Reader) *PageIndexBlockReader {
 	}
 }
 
-// Read returns the next index block from the reader.
-// If there are no more blocks, io.EOF is returned.
-func (r *PageIndexBlockReader) Read() (*PageIndexBlock, error) {
+// Read returns the offset and count of pages in the next index block
+// If there are no more blocks, an offset and count of zero, and an
+// error of io.EOF is returned.
+func (r *PageIndexBlockReader) Read() (int64, int, error) {
 	for r.scanner.Scan() {
 		curOffset, err := parseOffset(r.scanner.Text())
 		if err != nil {
-			return nil, err
+			return 0, 0, err
 		}
 
-		if r.prevOffset == 0 && curOffset > 0 {
-			r.prevOffset = curOffset
+		if r.prevoffset == 0 && curOffset > 0 {
+			r.prevoffset = curOffset
 		}
 
-		if curOffset < r.prevOffset {
-			return nil, ErrInvalidOffset
+		if curOffset < r.prevoffset {
+			return 0, 0, ErrInvalidOffset
 		}
 
-		if curOffset == r.prevOffset {
-			r.pageCount++
+		if curOffset == r.prevoffset {
+			r.npages++
 			continue
 		}
 
-		// Offset has changed and scan did not return false
-		// We are entering a new indexing block
-		chunk := &PageIndexBlock{
-			Offset: r.prevOffset,
-			Count:  r.pageCount,
-		}
-
 		// Set current offset & reset counter
-		r.prevOffset = curOffset
-		r.pageCount = 1
+		defer func() {
+			r.prevoffset = curOffset
+			r.npages = 1
+		}()
 
-		return chunk, nil
+		return r.prevoffset, r.npages, nil
 	}
 
 	// Return an error if the scanner stopped unexpectedly
 	// Err() returns nil if we are at io.EOF
 	if err := r.scanner.Err(); err != nil {
-		return nil, err
+		return 0, 0, err
 	}
 
-	if r.pageCount == 0 {
-		return nil, io.EOF
-	}
-
-	// Return remainder of last chunk
-	lastIndexBlock := &PageIndexBlock{
-		Offset: r.prevOffset,
-		Count:  r.pageCount,
+	if r.npages == 0 {
+		return 0, 0, io.EOF
 	}
 
 	// Reset counter to trigger nil response on next call
-	r.pageCount = 0
+	defer func() { r.npages = 0 }()
 
-	return lastIndexBlock, io.EOF
+	return r.prevoffset, r.npages, nil
 }
 
 var ErrBadRecord = errors.New("bad record")
@@ -236,7 +199,7 @@ type PageIndex struct {
 	Offset int64
 
 	// ID of the page
-	ID int64
+	ID int32
 
 	// Title of the page
 	Title string
@@ -288,10 +251,11 @@ func (r *PageIndexReader) Read(index *PageIndex) error {
 	if err != nil {
 		return fmt.Errorf("offset %w, err: %v", ErrParseFailed, err)
 	}
-	index.ID, err = strconv.ParseInt(parts[1], 10, 32)
+	parsedInt, err := strconv.ParseInt(parts[1], 10, 32)
 	if err != nil {
 		return fmt.Errorf("ID %w, err: %v", ErrParseFailed, err)
 	}
+	index.ID = int32(parsedInt)
 	index.Title = parts[2]
 
 	return nil
