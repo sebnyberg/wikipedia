@@ -25,8 +25,8 @@ func Test_PageReader(t *testing.T) {
 		input string
 		want  []result
 	}{
-		{"empty input", "", []result{{nilPage, wikirel.ErrParseFailed}}},
-		{"invalid input", "abc123", []result{{nilPage, wikirel.ErrParseFailed}}},
+		{"empty input", "", []result{{nilPage, wikirel.ErrFailedToParse}}},
+		{"invalid input", "abc123", []result{{nilPage, wikirel.ErrFailedToParse}}},
 		{"download example", downloadContents, []result{
 			{&accessibleComputingPage, nil},
 			{&anarchismPage, nil},

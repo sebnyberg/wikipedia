@@ -3,12 +3,16 @@ package wikirel
 import (
 	"bufio"
 	"compress/bzip2"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // PageReader reads Wikipedia pages from an input stream.
@@ -35,13 +39,13 @@ func (r *PageReader) Read(p *Page) error {
 	if !r.headerSkipped {
 		// Skip <mediawiki> tag
 		if _, err := r.dec.Token(); err != nil {
-			return fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrParseFailed, err)
+			return fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
 		}
 
 		// Skip <siteinfo> tag
 		si := struct{}{}
 		if err := r.dec.Decode(&si); err != nil {
-			return fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrParseFailed, err)
+			return fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
 		}
 
 		r.headerSkipped = true
@@ -51,34 +55,34 @@ func (r *PageReader) Read(p *Page) error {
 		if err == io.EOF {
 			return io.EOF
 		}
-		return fmt.Errorf("%w: could not parse page, err: %v", ErrParseFailed, err)
+		return fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
 	}
 
 	return nil
 }
 
-// MultiStreamReader reads blocks of articles from the multistream export.
-// Each time a new MultiStreamIndex is read, the provided reader will seek
-// to the start of the block, and read all articles from the block.
-type MultiStreamReader struct {
-	r io.ReadSeeker
-}
+// // MultiStreamReader reads blocks of articles from the multistream export.
+// // Each time a new MultiStreamIndex is read, the provided reader will seek
+// // to the start of the block, and read all articles from the block.
+// type MultiStreamReader struct {
+// 	r io.ReadSeeker
+// }
 
 // ReadPagesFromOffset puts the next chunk of pages into the provided slice.
 // If the slice cannot fit into the provided pages slice, a new slice will be created.
-func (r *MultiStreamReader) ReadPagesFromOffset(offset int64, count int) ([]Page, error) {
+func ReadPagesFromOffset(r io.ReadSeeker, offset int64, count int) ([]Page, error) {
 	pages := make([]Page, count)
 
-	if _, err := r.r.Seek(offset, 0); err != nil {
-		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrParseFailed, err)
+	if _, err := r.Seek(offset, 0); err != nil {
+		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrFailedToParse, err)
 	}
-	bz := bzip2.NewReader(r.r)
+	bz := bzip2.NewReader(r)
 	dec := xml.NewDecoder(bz)
 
 	// Decode pages until end of chunk
 	for i := 0; i < count; i++ {
 		if err := dec.Decode(&pages[i]); err != nil {
-			return nil, fmt.Errorf("%w: failed to parse page, err: %v", ErrParseFailed, err)
+			return nil, fmt.Errorf("%w: failed to parse page, err: %v", ErrFailedToParse, err)
 		}
 	}
 
@@ -120,7 +124,14 @@ type MultiStreamIndexRow struct {
 // NewMultiStreamIndexReader returns a reader that returns index blocks
 // from the provided file.
 //
-// The reader is expected to read plaintext from the multi-stream index file.
+// The reader is expected to read plaintext XML from the multi-stream
+// index file. To use this with the bzipped Wikipedia download,
+// use it like so:
+//
+//	f, _ := os.Open('path/to/multistream-index.xml.bz2)
+//	bz := bzip2.NewReader(f)
+//	r := NewMultiStreamIndexReader(bz)
+//
 func NewMultiStreamIndexReader(r io.Reader) *MultiStreamIndexReader {
 	return &MultiStreamIndexReader{
 		scanner: bufio.NewScanner(r),
@@ -144,11 +155,11 @@ func (r *MultiStreamIndexReader) ReadRow(row *MultiStreamIndexRow) error {
 	var err error
 	row.Offset, err = strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
-		return fmt.Errorf("offset %w, err: %v", ErrParseFailed, err)
+		return fmt.Errorf("offset %w, err: %v", ErrFailedToParse, err)
 	}
 	parsedInt, err := strconv.ParseInt(parts[1], 10, 32)
 	if err != nil {
-		return fmt.Errorf("ID %w, err: %v", ErrParseFailed, err)
+		return fmt.Errorf("ID %w, err: %v", ErrFailedToParse, err)
 	}
 	row.ID = int32(parsedInt)
 	row.Title = parts[2]
@@ -222,4 +233,76 @@ func parseOffset(s string) (int64, error) {
 	}
 
 	return 0, ErrBadRecord
+}
+
+type MultiStreamResult struct {
+	Pages []Page
+	Err   error
+}
+
+// NewMultiReader creates a reader that returns pages from the multi-stream download.
+// Both files should be provided in bzip2 format.
+func ReadMultiStream(ctx context.Context, idxfile string, pagefile string, nworkers int) (chan MultiStreamResult, error) {
+	g, ctx := errgroup.WithContext(ctx)
+
+	indices := make(chan MultiStreamIndex, 1000)
+
+	// Read indices
+	g.Go(func() error {
+		defer close(indices)
+
+		f, err := os.OpenFile(idxfile, os.O_RDONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("%w: failed to open index file, err: %v", ErrInvalidFile, err)
+		}
+		bz := bzip2.NewReader(f)
+		r := NewMultiStreamIndexReader(bz)
+
+		for {
+			idx, err := r.ReadIndex()
+			if err != nil {
+				if err == io.EOF {
+					return nil
+				}
+				return fmt.Errorf("%w index file, err: %v", ErrFailedToParse, err)
+			}
+			select {
+			case indices <- *idx:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	})
+
+	results := make(chan MultiStreamResult, 1000)
+
+	for i := 0; i < nworkers; i++ {
+		g.Go(func() error {
+			f, err := os.OpenFile(pagefile, os.O_RDONLY, 0644)
+			if err != nil {
+				return err
+			}
+			for idx := range indices {
+				pages, err := ReadPagesFromOffset(f, idx.Offset, idx.PageCount)
+				if err != nil {
+					return err
+				}
+				select {
+				case results <- MultiStreamResult{Pages: pages, Err: nil}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		})
+	}
+
+	go func() {
+		if err := g.Wait(); err != nil {
+			results <- MultiStreamResult{Pages: nil, Err: err}
+		}
+		close(results)
+	}()
+
+	return results, nil
 }
