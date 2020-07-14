@@ -95,7 +95,7 @@ func Benchmark_PageReader_Read(b *testing.B) {
 
 func Test_PageIndexBlockReader(t *testing.T) {
 	type result struct {
-		indexBlock *wikirel.PageIndexBlock
+		indexBlock *wikirel.MultiStreamIndex
 		err        error
 	}
 
@@ -116,18 +116,18 @@ func Test_PageIndexBlockReader(t *testing.T) {
 2:15:F
 3:16:G`,
 			[]result{
-				{&wikirel.PageIndexBlock{1, 3}, nil},
-				{&wikirel.PageIndexBlock{2, 3}, nil},
-				{&wikirel.PageIndexBlock{3, 1}, nil},
+				{&wikirel.MultiStreamIndex{1, 3}, nil},
+				{&wikirel.MultiStreamIndex{2, 3}, nil},
+				{&wikirel.MultiStreamIndex{3, 1}, nil},
 				{nil, io.EOF},
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.input)
-			indexReader := wikirel.NewPageIndexBlockReader(r)
+			indexReader := wikirel.NewMultiStreamIndexReader(r)
 			for _, expected := range tc.want {
-				got, err := indexReader.Read()
+				got, err := indexReader.ReadIndex()
 				if !cmp.Equal(expected.indexBlock, got) {
 					t.Errorf("invalid index, expected / got\n%v\n", cmp.Diff(expected.indexBlock, got))
 				}
@@ -141,11 +141,11 @@ func Test_PageIndexBlockReader(t *testing.T) {
 
 func Test_PageIndexReader(t *testing.T) {
 	type result struct {
-		index *wikirel.PageIndex
+		index *wikirel.MultiStreamIndexRow
 		err   error
 	}
 
-	nilIndex := new(wikirel.PageIndex)
+	nilIndex := new(wikirel.MultiStreamIndexRow)
 
 	for _, tc := range []struct {
 		name  string
@@ -163,22 +163,22 @@ func Test_PageIndexReader(t *testing.T) {
 2:15:F
 3:16:G`,
 			[]result{
-				{&wikirel.PageIndex{1, 10, "A"}, nil},
-				{&wikirel.PageIndex{1, 11, "B"}, nil},
-				{&wikirel.PageIndex{1, 12, "C"}, nil},
-				{&wikirel.PageIndex{2, 13, "D"}, nil},
-				{&wikirel.PageIndex{2, 15, "F"}, nil},
-				{&wikirel.PageIndex{3, 16, "G"}, nil},
+				{&wikirel.MultiStreamIndexRow{1, 10, "A"}, nil},
+				{&wikirel.MultiStreamIndexRow{1, 11, "B"}, nil},
+				{&wikirel.MultiStreamIndexRow{1, 12, "C"}, nil},
+				{&wikirel.MultiStreamIndexRow{2, 13, "D"}, nil},
+				{&wikirel.MultiStreamIndexRow{2, 15, "F"}, nil},
+				{&wikirel.MultiStreamIndexRow{3, 16, "G"}, nil},
 				{nilIndex, io.EOF},
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.input)
-			indexReader := wikirel.NewPageIndexReader(r)
+			indexReader := wikirel.NewMultiStreamIndexReader(r)
 			for _, expected := range tc.want {
-				got := new(wikirel.PageIndex)
-				err := indexReader.Read(got)
+				got := new(wikirel.MultiStreamIndexRow)
+				err := indexReader.ReadRow(got)
 				if !cmp.Equal(expected.index, got) {
 					t.Errorf("invalid index, expected / got\n%v\n", cmp.Diff(expected.index, got))
 				}
