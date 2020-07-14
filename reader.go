@@ -11,8 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	"golang.org/x/sync/errgroup"
+	"sync"
 )
 
 // PageReader reads Wikipedia pages from an input stream.
@@ -60,13 +59,6 @@ func (r *PageReader) Read(p *Page) error {
 
 	return nil
 }
-
-// // MultiStreamReader reads blocks of articles from the multistream export.
-// // Each time a new MultiStreamIndex is read, the provided reader will seek
-// // to the start of the block, and read all articles from the block.
-// type MultiStreamReader struct {
-// 	r io.ReadSeeker
-// }
 
 // ReadPagesFromOffset puts the next chunk of pages into the provided slice.
 // If the slice cannot fit into the provided pages slice, a new slice will be created.
@@ -240,69 +232,123 @@ type MultiStreamResult struct {
 	Err   error
 }
 
+type MultiStreamReader struct {
+	idxfile  string
+	pagefile string
+
+	indices chan MultiStreamIndex
+	pages   chan []Page
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	errOnce sync.Once
+	err     error
+}
+
 // NewMultiReader creates a reader that returns pages from the multi-stream download.
 // Both files should be provided in bzip2 format.
-func ReadMultiStream(ctx context.Context, idxfile string, pagefile string, nworkers int) (chan MultiStreamResult, error) {
-	g, ctx := errgroup.WithContext(ctx)
+func ReadMultiStream(
+	ctx context.Context,
+	idxfile string,
+	pagefile string,
+	nworkers int,
+) (*MultiStreamReader, error) {
 
-	indices := make(chan MultiStreamIndex, 1000)
+	r := new(MultiStreamReader)
 
-	// Read indices
-	g.Go(func() error {
-		defer close(indices)
+	r.idxfile = idxfile
+	r.pagefile = pagefile
+	r.ctx, r.cancel = context.WithCancel(ctx)
 
-		f, err := os.OpenFile(idxfile, os.O_RDONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("%w: failed to open index file, err: %v", ErrInvalidFile, err)
-		}
-		bz := bzip2.NewReader(f)
-		r := NewMultiStreamIndexReader(bz)
+	r.indices = make(chan MultiStreamIndex, 1000)
 
-		for {
-			idx, err := r.ReadIndex()
-			if err != nil {
-				if err == io.EOF {
-					return nil
-				}
-				return fmt.Errorf("%w index file, err: %v", ErrFailedToParse, err)
-			}
-			select {
-			case indices <- *idx:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-	})
+	// Read indices and put them on the indices channel
+	go r.indexWorker()
 
-	results := make(chan MultiStreamResult, 1000)
+	// There are <100 pages per block, so this channel will buffer 100k pages total
+	r.pages = make(chan []Page, 1000)
 
+	var wg sync.WaitGroup
+	wg.Add(nworkers)
 	for i := 0; i < nworkers; i++ {
-		g.Go(func() error {
-			f, err := os.OpenFile(pagefile, os.O_RDONLY, 0644)
-			if err != nil {
-				return err
-			}
-			for idx := range indices {
-				pages, err := ReadPagesFromOffset(f, idx.Offset, idx.PageCount)
-				if err != nil {
-					return err
-				}
-				select {
-				case results <- MultiStreamResult{Pages: pages, Err: nil}:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			return nil
-		})
+		go r.pageWorker(&wg)
 	}
-
 	go func() {
-		if err := g.Wait(); err != nil {
-			results <- MultiStreamResult{Pages: nil, Err: err}
-		}
-		close(results)
+		wg.Wait()
+		close(r.pages)
+		r.done(io.EOF)
 	}()
 
-	return results, nil
+	return r, nil
+}
+
+func (r *MultiStreamReader) done(err error) {
+	r.errOnce.Do(func() {
+		r.err = err
+		r.cancel()
+	})
+}
+
+func (r *MultiStreamReader) indexWorker() {
+	defer close(r.indices)
+
+	f, err := os.OpenFile(r.idxfile, os.O_RDONLY, 0644)
+	defer f.Close()
+	if err != nil {
+		r.done(fmt.Errorf("%w: failed to open index file, err: %v", ErrInvalidFile, err))
+		return
+	}
+
+	bz := bzip2.NewReader(f)
+	indexrd := NewMultiStreamIndexReader(bz)
+
+	for {
+		idx, err := indexrd.ReadIndex()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			r.done(fmt.Errorf("%w index file, err: %v", ErrFailedToParse, err))
+		}
+
+		select {
+		case r.indices <- *idx:
+		case <-r.ctx.Done():
+			r.done(r.ctx.Err())
+			break
+		}
+	}
+}
+
+func (r *MultiStreamReader) pageWorker(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	f, err := os.OpenFile(r.pagefile, os.O_RDONLY, 0644)
+	if err != nil {
+		r.done(fmt.Errorf("%w: failed to open pages file, err: %v", ErrInvalidFile, err))
+	}
+	defer f.Close()
+
+	for idx := range r.indices {
+		var pages []Page
+		pages, err := ReadPagesFromOffset(f, idx.Offset, idx.PageCount)
+		if err != nil {
+			r.done(fmt.Errorf("unexpected error when reading multi-stream pages, err: %v", err))
+		}
+
+		select {
+		case r.pages <- pages:
+		case <-r.ctx.Done():
+			r.done(r.ctx.Err())
+			break
+		}
+	}
+}
+
+func (r *MultiStreamReader) Next() ([]Page, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return <-r.pages, nil
 }
