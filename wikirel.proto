@@ -18,4 +18,9 @@ message Page {
   uint32 namespace = 3;
   string redirect_title = 4;
   repeated Revision revisions = 5;
+  repeated Link links = 6;
+}
+
+message Link {
+  string target_title = 1;
 }

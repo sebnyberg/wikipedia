@@ -1,4 +1,4 @@
-package wikirel
+package wikiparse
 
 import "errors"
 
