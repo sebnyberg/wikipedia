@@ -33,7 +33,7 @@ func NewPageReader(r io.Reader) *PageReader {
 
 // Read returns the next page from the reader.
 // If there are no more pages, io.EOF is returned.
-func (r *PageReader) Read(p *Page) error {
+func (r *PageReader) Read(p *XMLPage) error {
 	// Skip <mediawiki> and <siteinfo> tag once per document
 	if !r.headerSkipped {
 		// Skip <mediawiki> tag
@@ -62,8 +62,8 @@ func (r *PageReader) Read(p *Page) error {
 
 // ReadPagesFromOffset puts the next chunk of pages into the provided slice.
 // If the slice cannot fit into the provided pages slice, a new slice will be created.
-func ReadPagesFromOffset(r io.ReadSeeker, offset int64, count int) ([]Page, error) {
-	pages := make([]Page, count)
+func ReadPagesFromOffset(r io.ReadSeeker, offset int64, count int) ([]XMLPage, error) {
+	pages := make([]XMLPage, count)
 
 	if _, err := r.Seek(offset, 0); err != nil {
 		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrFailedToParse, err)
@@ -228,7 +228,7 @@ func parseOffset(s string) (int64, error) {
 }
 
 type MultiStreamResult struct {
-	Pages []Page
+	Pages []XMLPage
 	Err   error
 }
 
@@ -237,7 +237,7 @@ type MultiStreamReader struct {
 	pagefile string
 
 	indices chan MultiStreamIndex
-	pages   chan []Page
+	pages   chan []XMLPage
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -267,7 +267,7 @@ func ReadMultiStream(
 	go r.indexWorker()
 
 	// There are <100 pages per block, so this channel will buffer 100k pages total
-	r.pages = make(chan []Page, 1000)
+	r.pages = make(chan []XMLPage, 1000)
 
 	var wg sync.WaitGroup
 	wg.Add(nworkers)
@@ -331,7 +331,7 @@ func (r *MultiStreamReader) pageWorker(wg *sync.WaitGroup) {
 	defer f.Close()
 
 	for idx := range r.indices {
-		var pages []Page
+		var pages []XMLPage
 		pages, err := ReadPagesFromOffset(f, idx.Offset, idx.PageCount)
 		if err != nil {
 			r.done(fmt.Errorf("unexpected error when reading multi-stream pages, err: %v", err))
@@ -346,7 +346,7 @@ func (r *MultiStreamReader) pageWorker(wg *sync.WaitGroup) {
 	}
 }
 
-func (r *MultiStreamReader) Next() ([]Page, error) {
+func (r *MultiStreamReader) Next() ([]XMLPage, error) {
 	if r.err != nil {
 		return nil, r.err
 	}

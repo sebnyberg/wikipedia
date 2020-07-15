@@ -14,11 +14,11 @@ import (
 
 func Test_PageReader(t *testing.T) {
 	type result struct {
-		page *wikirel.Page
+		page *wikirel.XMLPage
 		err  error
 	}
 
-	nilPage := new(wikirel.Page)
+	nilPage := new(wikirel.XMLPage)
 
 	for _, tc := range []struct {
 		name  string
@@ -37,9 +37,9 @@ func Test_PageReader(t *testing.T) {
 			r := strings.NewReader(tc.input)
 			pageReader := wikirel.NewPageReader(r)
 			for _, expected := range tc.want {
-				p := new(wikirel.Page)
+				p := new(wikirel.XMLPage)
 				err := pageReader.Read(p)
-				if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikirel.Page{}, "Text")) {
+				if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikirel.XMLPage{}, "Text")) {
 					t.Errorf("expected page did not match result\n%v", cmp.Diff(expected.page, p))
 				}
 				if !cmp.Equal(err, expected.err, cmpopts.EquateErrors()) {
@@ -51,7 +51,7 @@ func Test_PageReader(t *testing.T) {
 }
 
 func Test_PageStruct(t *testing.T) {
-	var p wikirel.Page
+	var p wikirel.XMLPage
 	if err := xml.Unmarshal([]byte(accessibleComputingXML), &p); err != nil {
 		t.Fatalf("failed to unmarshal page: %v", err)
 	}
@@ -78,9 +78,9 @@ func Benchmark_PageReader_Read(b *testing.B) {
 		b.StopTimer()
 		r := wikirel.NewPageReader(strings.NewReader(anarchistWikipedia))
 		b.StartTimer()
-		pages := make([]wikirel.Page, 0)
+		pages := make([]wikirel.XMLPage, 0)
 		for {
-			var p wikirel.Page
+			var p wikirel.XMLPage
 			err := r.Read(&p)
 			if err != nil {
 				if err == io.EOF {
@@ -202,11 +202,11 @@ const siteInfo = `<siteinfo>
 	</namespaces>
 </siteinfo>`
 
-var accessibleComputingPage = wikirel.Page{
+var accessibleComputingPage = wikirel.XMLPage{
 	Title:     "AccessibleComputing",
 	ID:        10,
 	Namespace: 0,
-	Redirect: &wikirel.Redirect{
+	Redirect: &wikirel.XMLRedirect{
 		Title: "Computer accessibility",
 	},
 	Text: `#REDIRECT [[Computer accessibility]]
@@ -242,7 +242,7 @@ const accessibleComputingXML = `<page>
 </page>
 `
 
-var anarchismPage = wikirel.Page{
+var anarchismPage = wikirel.XMLPage{
 	Title:     "Anarchism",
 	Namespace: 0,
 	ID:        12,

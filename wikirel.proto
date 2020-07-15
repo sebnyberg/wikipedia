@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package com.github.sebnyberg.wikirel;
+
+option go_package = "github.com/sebnyberg/wikirel";
+
+message Page {
+  string title = 1;
+  int32 id = 2;
+  string text = 3;
+}

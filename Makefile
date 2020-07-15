@@ -1,2 +1,4 @@
-testpprof:
-	go tool pprof -http=":8081" cpu.pprof main
+.PHONY: proto
+
+proto:
+	protoc -I=. --go_out=. --go_opt=paths=source_relative wikirel.proto
