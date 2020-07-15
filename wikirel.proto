@@ -2,10 +2,20 @@ syntax = "proto3";
 
 package com.github.sebnyberg.wikirel;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/sebnyberg/wikirel";
+
+message Revision {
+  int32 id = 1;
+  google.protobuf.Timestamp ts = 2;
+  string text = 3;
+}
 
 message Page {
   string title = 1;
   int32 id = 2;
-  string text = 3;
+  uint32 namespace = 3;
+  string redirect_title = 4;
+  repeated Revision revisions = 5;
 }

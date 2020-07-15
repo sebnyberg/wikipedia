@@ -39,7 +39,10 @@ func Test_PageReader(t *testing.T) {
 			for _, expected := range tc.want {
 				p := new(wikirel.XMLPage)
 				err := pageReader.Read(p)
-				if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikirel.XMLPage{}, "Text")) {
+				// if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikirel.XMLPage{}, "Text")) {
+
+				if !cmp.Equal(expected.page, p) {
+					fmt.Println(expected.page.Revisions[0].Text)
 					t.Errorf("expected page did not match result\n%v", cmp.Diff(expected.page, p))
 				}
 				if !cmp.Equal(err, expected.err, cmpopts.EquateErrors()) {
@@ -209,11 +212,17 @@ var accessibleComputingPage = wikirel.XMLPage{
 	Redirect: &wikirel.XMLRedirect{
 		Title: "Computer accessibility",
 	},
-	Text: `#REDIRECT [[Computer accessibility]]
+	Revisions: []wikirel.XMLRevision{
+		{
+			ID: 854851586,
+			Text: `#REDIRECT [[Computer accessibility]]
 
 	{{R from move}}
 	{{R from CamelCase}}
 	{{R unprintworthy}}`,
+			Timestamp: "2018-08-14T06:47:24Z",
+		},
+	},
 }
 
 const accessibleComputingXML = `<page>
@@ -242,13 +251,25 @@ const accessibleComputingXML = `<page>
 </page>
 `
 
+var anarchismDecodedText = func() string {
+	dec := xml.NewDecoder(strings.NewReader(anarchismXML))
+	ss := struct {
+		Text string `xml:"revision>text"`
+	}{}
+	if err := dec.Decode(&ss); err != nil {
+		panic(err)
+	}
+	return ss.Text
+}()
+
 var anarchismPage = wikirel.XMLPage{
 	Title:     "Anarchism",
 	Namespace: 0,
 	ID:        12,
 	Redirect:  nil,
-	// Leaving out text
-	// Text: ...
+	Revisions: []wikirel.XMLRevision{
+		{ID: 963604419, Timestamp: "2020-06-20T19:02:32Z", Text: anarchismDecodedText},
+	},
 }
 
 const anarchismXML = `<page>
@@ -265,7 +286,13 @@ const anarchismXML = `<page>
 		<comment>I changed 'New Romanticism' to 'Neo Romanticism' because the link very mistakenly led to 'New Romantic' pop music of 1980's Britain.</comment>
 		<model>wikitext</model>
 		<format>text/x-wiki</format>
-		<text bytes="83050" xml:space="preserve">{{short description|Political philosophy and movement}}
+		<text bytes="83050" xml:space="preserve">` + anarchismXMLText + `
+		</text>
+		<sha1>bm226lfkmg6pktr3isb6b6znnwallfs</sha1>
+	</revision>
+</page>`
+
+const anarchismXMLText = `{{short description|Political philosophy and movement}}
 	{{redirect2|Anarchist|Anarchists|other uses|Anarchists (disambiguation)}}
 	{{pp-move-indef}}
 	{{good article}}
@@ -588,11 +615,7 @@ const anarchismXML = `<page>
 	[[Category:Political culture]]
 	[[Category:Political movements]]
 	[[Category:Political ideologies]]
-	[[Category:Social theories]]</text>
-		<sha1>bm226lfkmg6pktr3isb6b6znnwallfs</sha1>
-	</revision>
-</page>
-`
+	[[Category:Social theories]]`
 
 var downloadContents = fmt.Sprintf(`<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.10/ http://www.mediawiki.org/xml/export-0.10.xsd" version="0.10" xml:lang="en">
 	%s

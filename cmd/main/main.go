@@ -12,6 +12,8 @@ import (
 
 	_ "net/http/pprof"
 
+	"github.com/golang/protobuf/ptypes"
+	"github.com/klauspost/compress/zstd"
 	_ "github.com/mkevac/debugcharts"
 	"github.com/pkg/profile"
 	"github.com/sebnyberg/protoio"
@@ -26,19 +28,23 @@ type Mapper struct {
 }
 
 func main() {
-	// fmt.Println("writing proto files")
-	// writeProto()
-	fmt.Println("reading proto files")
-	readProto()
+	fmt.Println("writing proto files")
+	writeProto()
+	// fmt.Println("reading proto files")
+	// readProto()
 }
 
 func readProto() {
-	r, err := os.OpenFile("tmp/pages.proto.ld", os.O_RDONLY, 0644)
+	f, err := os.OpenFile("tmp/pages.proto.ld.zs", os.O_RDONLY, 0644)
 	check(err)
+	buf := bufio.NewReader(f)
+	z, err := zstd.NewReader(buf)
+	check(err)
+	protor := protoio.NewReader(z)
+
 	defer func() {
-		check(r.Close())
+		check(f.Close())
 	}()
-	protor := protoio.NewReader(bufio.NewReader(r))
 
 	defer func(start time.Time) {
 		fmt.Println("elapsed: ", time.Now().Sub(start))
@@ -76,12 +82,29 @@ func writeProto() {
 		fmt.Println("elapsed: ", time.Now().Sub(start))
 	}(time.Now())
 
-	outf, err := os.OpenFile("tmp/pages.proto.ld", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	check(err)
-	defer func() {
-		check(outf.Close())
-	}()
-	protow := protoio.NewWriter(bufio.NewWriter(outf))
+	// compf, err := os.OpenFile("tmp/pages.proto.ld.zs", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// check(err)
+	// compbufw := bufio.NewWriter(compf)
+	// compzw, err := zstd.NewWriter(compbufw)
+	// check(err)
+
+	// plainf, err := os.OpenFile("tmp/pages.proto.ld", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// check(err)
+	// plainbufw := bufio.NewWriter(plainf)
+
+	// mw := io.MultiWriter(compzw, plainbufw)
+	// protow := protoio.NewWriter(mw)
+
+	// defer func() {
+	// 	check(compzw.Close())
+	// 	check(compbufw.Flush())
+	// 	check(compf.Close())
+
+	// 	check(plainbufw.Flush())
+	// 	check(plainf.Close())
+
+	// 	check(protow.Close())
+	// }()
 
 	i := 0
 	ntotal := 0
@@ -96,15 +119,35 @@ func writeProto() {
 			break
 		}
 		for _, page := range pages {
-			check(protow.WriteMsg(&wikirel.Page{
-				Id:    page.ID,
-				Text:  page.Text,
-				Title: page.Title,
-			}))
+			revisions := make([]*wikirel.Revision, len(page.Revisions))
+			for i, p := range page.Revisions {
+				t, err := time.Parse(time.RFC3339, p.Timestamp)
+				check(err)
+				ts, err := ptypes.TimestampProto(t)
+				check(err)
+				revisions[i] = &wikirel.Revision{
+					Id:   int32(p.ID),
+					Ts:   ts,
+					Text: p.Text,
+				}
+			}
+
+			p := &wikirel.Page{
+				Id:        page.ID,
+				Title:     page.Title,
+				Namespace: page.Namespace,
+				Revisions: revisions,
+			}
+			if page.Redirect != nil {
+				p.Title = page.Redirect.Title
+			}
+
+			// check(protow.WriteMsg(p))
 		}
 		ntotal += len(pages)
 		fmt.Printf("%v\r", ntotal)
 	}
+	fmt.Println(i)
 }
 
 func check(err error) {

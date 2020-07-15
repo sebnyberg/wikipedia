@@ -26,9 +26,9 @@ type PageReader struct {
 // the non-multi-stream Wikipedia database download.
 //
 func NewPageReader(r io.Reader) *PageReader {
-	return &PageReader{
-		dec: xml.NewDecoder(r),
-	}
+	dec := xml.NewDecoder(r)
+
+	return &PageReader{dec: dec}
 }
 
 // Read returns the next page from the reader.
