@@ -1,4 +1,4 @@
-package wikiparse
+package wikixml
 
 import (
 	"bufio"
@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/sebnyberg/wikirel"
 )
 
 // PageReader reads Wikipedia pages from an input stream.
@@ -33,37 +35,38 @@ func NewPageReader(r io.Reader) *PageReader {
 
 // Read returns the next page from the reader.
 // If there are no more pages, io.EOF is returned.
-func (r *PageReader) Read(p *XMLPage) error {
+func (r *PageReader) Read() (*wikirel.FullPage, error) {
 	// Skip <mediawiki> and <siteinfo> tag once per document
 	if !r.headerSkipped {
 		// Skip <mediawiki> tag
 		if _, err := r.dec.Token(); err != nil {
-			return fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
+			return nil, fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
 		}
 
 		// Skip <siteinfo> tag
 		si := struct{}{}
 		if err := r.dec.Decode(&si); err != nil {
-			return fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
+			return nil, fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
 		}
 
 		r.headerSkipped = true
 	}
 
+	p := new(Page)
 	if err := r.dec.Decode(p); err != nil {
 		if err == io.EOF {
-			return io.EOF
+			return nil, io.EOF
 		}
-		return fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
+		return nil, fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
 	}
 
-	return nil
+	return NewFullPage(p), nil
 }
 
 // ReadPagesFromOffset puts the next chunk of pages into the provided slice.
 // If the slice cannot fit into the provided pages slice, a new slice will be created.
-func ReadPagesFromOffset(r io.ReadSeeker, offset int64, count int) ([]XMLPage, error) {
-	pages := make([]XMLPage, count)
+func ReadPagesFromOffset(r io.ReadSeeker, offset int64, count int) ([]Page, error) {
+	pages := make([]Page, count)
 
 	if _, err := r.Seek(offset, 0); err != nil {
 		return nil, fmt.Errorf("%w: failed to seek to offset, err: %v", ErrFailedToParse, err)
@@ -228,7 +231,7 @@ func parseOffset(s string) (int64, error) {
 }
 
 type MultiStreamResult struct {
-	Pages []XMLPage
+	Pages []Page
 	Err   error
 }
 
@@ -237,7 +240,7 @@ type MultiStreamReader struct {
 	pagefile string
 
 	indices chan MultiStreamIndex
-	pages   chan []XMLPage
+	pages   chan []Page
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -267,7 +270,7 @@ func ReadMultiStream(
 	go r.indexWorker()
 
 	// There are <100 pages per block, so this channel will buffer 100k pages total
-	r.pages = make(chan []XMLPage, 1000)
+	r.pages = make(chan []Page, 1000)
 
 	var wg sync.WaitGroup
 	wg.Add(nworkers)
@@ -294,7 +297,11 @@ func (r *MultiStreamReader) indexWorker() {
 	defer close(r.indices)
 
 	f, err := os.OpenFile(r.idxfile, os.O_RDONLY, 0644)
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Println("failed to close file, err:", err)
+		}
+	}()
 	if err != nil {
 		r.done(fmt.Errorf("%w: failed to open index file, err: %v", ErrInvalidFile, err))
 		return
@@ -328,10 +335,14 @@ func (r *MultiStreamReader) pageWorker(wg *sync.WaitGroup) {
 	if err != nil {
 		r.done(fmt.Errorf("%w: failed to open pages file, err: %v", ErrInvalidFile, err))
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Println("failed to close file, err:", err)
+		}
+	}()
 
 	for idx := range r.indices {
-		var pages []XMLPage
+		var pages []Page
 		pages, err := ReadPagesFromOffset(f, idx.Offset, idx.PageCount)
 		if err != nil {
 			r.done(fmt.Errorf("unexpected error when reading multi-stream pages, err: %v", err))
@@ -346,7 +357,7 @@ func (r *MultiStreamReader) pageWorker(wg *sync.WaitGroup) {
 	}
 }
 
-func (r *MultiStreamReader) Next() ([]XMLPage, error) {
+func (r *MultiStreamReader) Next() ([]Page, error) {
 	if r.err != nil {
 		return nil, r.err
 	}

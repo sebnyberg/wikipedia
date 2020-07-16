@@ -1,6 +1,6 @@
 package wikirel
 
-func Score(a *Page, b *Page) float32 {
+func Score(a *LinkedPage, b *LinkedPage) float32 {
 	aLinks := make(map[string]bool, len(a.Links))
 	aLinks[a.Title] = true
 	for _, link := range a.Links {
