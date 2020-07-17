@@ -7,7 +7,7 @@ import (
 )
 
 func Test_ScoreArticles(t *testing.T) {
-	a := &wikirel.LinkedPage{
+	a := &wikirel.Page{
 		Title: "a",
 		Links: []*wikirel.Link{
 			{TargetTitle: "b"},
@@ -15,7 +15,7 @@ func Test_ScoreArticles(t *testing.T) {
 			{TargetTitle: "d"},
 		},
 	}
-	b := new(wikirel.LinkedPage)
+	b := new(wikirel.Page)
 	*b = *a
 	b.Links = append(b.Links, &wikirel.Link{TargetTitle: "e"})
 
