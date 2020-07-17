@@ -1,4 +1,4 @@
-package wikiparse
+package wikixml
 
 import "errors"
 

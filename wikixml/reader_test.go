@@ -1,4 +1,4 @@
-package wikiparse_test
+package wikixml_test
 
 import (
 	"encoding/xml"
@@ -9,24 +9,24 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/sebnyberg/wikirel/wikiparse"
+	"github.com/sebnyberg/wikirel/wikixml"
 )
 
 func Test_PageReader(t *testing.T) {
 	type result struct {
-		page *wikiparse.XMLPage
+		page *wikixml.Page
 		err  error
 	}
 
-	nilPage := new(wikiparse.XMLPage)
+	nilPage := new(wikixml.Page)
 
 	for _, tc := range []struct {
 		name  string
 		input string
 		want  []result
 	}{
-		{"empty input", "", []result{{nilPage, wikiparse.ErrFailedToParse}}},
-		{"invalid input", "abc123", []result{{nilPage, wikiparse.ErrFailedToParse}}},
+		{"empty input", "", []result{{nilPage, wikixml.ErrFailedToParse}}},
+		{"invalid input", "abc123", []result{{nilPage, wikixml.ErrFailedToParse}}},
 		{"download example", downloadContents, []result{
 			{&accessibleComputingPage, nil},
 			{&anarchismPage, nil},
@@ -35,11 +35,11 @@ func Test_PageReader(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.input)
-			pageReader := wikiparse.NewPageReader(r)
+			pageReader := wikixml.NewPageReader(r)
 			for _, expected := range tc.want {
-				p := new(wikiparse.XMLPage)
+				p := new(wikixml.Page)
 				err := pageReader.Read(p)
-				// if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikiparse.XMLPage{}, "Text")) {
+				// if !cmp.Equal(expected.page, p, cmpopts.IgnoreFields(wikixml.Page{}, "Text")) {
 
 				if !cmp.Equal(expected.page, p) {
 					fmt.Println(expected.page.Revisions[0].Text)
@@ -54,7 +54,7 @@ func Test_PageReader(t *testing.T) {
 }
 
 func Test_PageStruct(t *testing.T) {
-	var p wikiparse.XMLPage
+	var p wikixml.Page
 	if err := xml.Unmarshal([]byte(accessibleComputingXML), &p); err != nil {
 		t.Fatalf("failed to unmarshal page: %v", err)
 	}
@@ -79,11 +79,11 @@ func Benchmark_PageReader_Read(b *testing.B) {
 	anarchistWikipedia := getAnarchistWikipedia(10)
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		r := wikiparse.NewPageReader(strings.NewReader(anarchistWikipedia))
+		r := wikixml.NewPageReader(strings.NewReader(anarchistWikipedia))
 		b.StartTimer()
-		pages := make([]wikiparse.XMLPage, 0)
+		pages := make([]wikixml.Page, 0)
 		for {
-			var p wikiparse.XMLPage
+			var p wikixml.Page
 			err := r.Read(&p)
 			if err != nil {
 				if err == io.EOF {
@@ -98,7 +98,7 @@ func Benchmark_PageReader_Read(b *testing.B) {
 
 func Test_PageIndexBlockReader(t *testing.T) {
 	type result struct {
-		indexBlock *wikiparse.MultiStreamIndex
+		indexBlock *wikixml.MultiStreamIndex
 		err        error
 	}
 
@@ -108,7 +108,7 @@ func Test_PageIndexBlockReader(t *testing.T) {
 		want  []result
 	}{
 		{"empty input", "", []result{{nil, io.EOF}}},
-		{"incomplete row", "abc123", []result{{nil, wikiparse.ErrBadRecord}}},
+		{"incomplete row", "abc123", []result{{nil, wikixml.ErrBadRecord}}},
 		{
 			"valid indexes",
 			`1:10:A
@@ -119,16 +119,16 @@ func Test_PageIndexBlockReader(t *testing.T) {
 2:15:F
 3:16:G`,
 			[]result{
-				{&wikiparse.MultiStreamIndex{1, 3}, nil},
-				{&wikiparse.MultiStreamIndex{2, 3}, nil},
-				{&wikiparse.MultiStreamIndex{3, 1}, nil},
+				{&wikixml.MultiStreamIndex{1, 3}, nil},
+				{&wikixml.MultiStreamIndex{2, 3}, nil},
+				{&wikixml.MultiStreamIndex{3, 1}, nil},
 				{nil, io.EOF},
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.input)
-			indexReader := wikiparse.NewMultiStreamIndexReader(r)
+			indexReader := wikixml.NewMultiStreamIndexReader(r)
 			for _, expected := range tc.want {
 				got, err := indexReader.ReadIndex()
 				if !cmp.Equal(expected.indexBlock, got) {
@@ -144,11 +144,11 @@ func Test_PageIndexBlockReader(t *testing.T) {
 
 func Test_PageIndexReader(t *testing.T) {
 	type result struct {
-		index *wikiparse.MultiStreamIndexRow
+		index *wikixml.MultiStreamIndexRow
 		err   error
 	}
 
-	nilIndex := new(wikiparse.MultiStreamIndexRow)
+	nilIndex := new(wikixml.MultiStreamIndexRow)
 
 	for _, tc := range []struct {
 		name  string
@@ -156,7 +156,7 @@ func Test_PageIndexReader(t *testing.T) {
 		want  []result
 	}{
 		{"empty input", "", []result{{nilIndex, io.EOF}}},
-		{"incomplete row", "abc123", []result{{nilIndex, wikiparse.ErrBadRecord}}},
+		{"incomplete row", "abc123", []result{{nilIndex, wikixml.ErrBadRecord}}},
 		{
 			"valid indexes",
 			`1:10:A
@@ -166,21 +166,21 @@ func Test_PageIndexReader(t *testing.T) {
 2:15:F
 3:16:G`,
 			[]result{
-				{&wikiparse.MultiStreamIndexRow{1, 10, "A"}, nil},
-				{&wikiparse.MultiStreamIndexRow{1, 11, "B"}, nil},
-				{&wikiparse.MultiStreamIndexRow{1, 12, "C"}, nil},
-				{&wikiparse.MultiStreamIndexRow{2, 13, "D"}, nil},
-				{&wikiparse.MultiStreamIndexRow{2, 15, "F"}, nil},
-				{&wikiparse.MultiStreamIndexRow{3, 16, "G"}, nil},
+				{&wikixml.MultiStreamIndexRow{1, 10, "A"}, nil},
+				{&wikixml.MultiStreamIndexRow{1, 11, "B"}, nil},
+				{&wikixml.MultiStreamIndexRow{1, 12, "C"}, nil},
+				{&wikixml.MultiStreamIndexRow{2, 13, "D"}, nil},
+				{&wikixml.MultiStreamIndexRow{2, 15, "F"}, nil},
+				{&wikixml.MultiStreamIndexRow{3, 16, "G"}, nil},
 				{nilIndex, io.EOF},
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.input)
-			indexReader := wikiparse.NewMultiStreamIndexReader(r)
+			indexReader := wikixml.NewMultiStreamIndexReader(r)
 			for _, expected := range tc.want {
-				got := new(wikiparse.MultiStreamIndexRow)
+				got := new(wikixml.MultiStreamIndexRow)
 				err := indexReader.ReadRow(got)
 				if !cmp.Equal(expected.index, got) {
 					t.Errorf("invalid index, expected / got\n%v\n", cmp.Diff(expected.index, got))
@@ -205,14 +205,14 @@ const siteInfo = `<siteinfo>
 	</namespaces>
 </siteinfo>`
 
-var accessibleComputingPage = wikiparse.XMLPage{
+var accessibleComputingPage = wikixml.Page{
 	Title:     "AccessibleComputing",
 	ID:        10,
 	Namespace: 0,
-	Redirect: &wikiparse.XMLRedirect{
+	Redirect: &wikixml.Redirect{
 		Title: "Computer accessibility",
 	},
-	Revisions: []wikiparse.XMLRevision{
+	Revisions: []wikixml.Revision{
 		{
 			ID: 854851586,
 			Text: `#REDIRECT [[Computer accessibility]]
@@ -262,12 +262,12 @@ var anarchismDecodedText = func() string {
 	return ss.Text
 }()
 
-var anarchismPage = wikiparse.XMLPage{
+var anarchismPage = wikixml.Page{
 	Title:     "Anarchism",
 	Namespace: 0,
 	ID:        12,
 	Redirect:  nil,
-	Revisions: []wikiparse.XMLRevision{
+	Revisions: []wikixml.Revision{
 		{ID: 963604419, Timestamp: "2020-06-20T19:02:32Z", Text: anarchismDecodedText},
 	},
 }
