@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/DataDog/zstd v1.4.1
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dgraph-io/badger v1.6.1
 	github.com/dgraph-io/badger/v2 v2.0.3
 	github.com/frankban/quicktest v1.10.0
 	github.com/golang/protobuf v1.4.2

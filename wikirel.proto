@@ -12,16 +12,16 @@ message Revision {
   string text = 3;
 }
 
+message Link {
+  string target_title = 1;
+}
 message LinkedPage {
-  string title = 1;
-  int32 id = 2;
-  message Link {
-    string target_title = 1;
-  }
+  string page_title = 1;
+  int32 page_id = 2;
   repeated Link links = 3;
 }
 
-message FullPage {
+message Page {
   string title = 1;
   int32 id = 2;
   uint32 namespace = 3;

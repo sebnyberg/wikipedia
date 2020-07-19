@@ -1,53 +1,46 @@
 package cmd
 
 import (
-	"bufio"
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"os"
-	"path"
 	"time"
 
-	"github.com/DataDog/zstd"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/sebnyberg/protoio"
+	"github.com/pkg/profile"
 	"github.com/sebnyberg/wikirel"
-	"github.com/sebnyberg/wikirel/wikixml"
+	"github.com/sebnyberg/wikirel/bdg"
 	"github.com/urfave/cli/v2"
 )
 
 func Parse() *cli.Command {
 	return &cli.Command{
 		Name:        "parse",
-		Description: "parse the wikipedia dataset to some other format",
+		Description: "parse the wikipedia dataset to protobuf or badger format",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "pagefile",
-				Usage: "`FILE` to parse articles from - must be a multi-stream pages",
-				Value: "tmp/multistream.xml.bz2",
+				Name:    "infmt",
+				Usage:   "input `FORMAT`, can be either 'proto' or 'xml'. If XML is used, idxfile and pagefile must be set.",
+				Aliases: []string{"i"},
+				Value:   "tmp/multistream.xml.bz2",
+			},
+			&cli.StringFlag{
+				Name:    "pagefile",
+				Usage:   "input `FILE` to parse pages from. If XML is used, idxfile must be provided as well.",
+				Aliases: []string{"f"},
 			},
 			&cli.StringFlag{
 				Name:  "idxfile",
-				Usage: "`FILE` to parse indices from",
-				Value: "tmp/multistream-index.txt.bz2",
+				Usage: "`FILE` to parse indices from. Only used when parsing from XML.",
 			},
 			&cli.StringFlag{
-				Name:     "output",
-				Usage:    "output format, can be either 'badger', or 'proto'",
+				Name:     "outfmt",
+				Usage:    "output `FORMAT`, can be either 'badger', or 'proto'",
 				Aliases:  []string{"o"},
 				Required: true,
 			},
 			&cli.StringFlag{
 				Name:  "outpath",
-				Usage: "output path. For proto, use a file, for badger, use a directory",
-			},
-			&cli.IntFlag{
-				Name:  "nworker",
-				Usage: "`N` workers to use when parsing pages",
-				Value: 8,
+				Usage: "output `PATH`. For proto, use a file, for badger, use a directory",
 			},
 		},
 		Action: func(c *cli.Context) error {
@@ -57,66 +50,62 @@ func Parse() *cli.Command {
 }
 
 func parseAction(c *cli.Context) error {
-	idxfile := c.String("idxfile")
-	if len(idxfile) == 0 {
-		return errors.New("idxfile is required")
-	}
 	pagefile := c.String("pagefile")
 	if len(pagefile) == 0 {
 		return errors.New("pagefile is required")
 	}
-	out := c.String("output")
+
+	var reader wikirel.PageBlockReader
+	var err error
+	switch c.String("infmt") {
+	case "proto":
+		reader, err = wikirel.NewProtoBlockReader(pagefile, 100)
+		if err != nil {
+			return err
+		}
+	case "xml":
+		idxfile := c.String("idxfile")
+		if len(idxfile) == 0 {
+			return errors.New("idxfile is required")
+		}
+		reader, err = wikirel.GetXMLPageReader(idxfile, pagefile)
+		if err != nil {
+			return err
+		}
+	default:
+		fmt.Println("output must be of type 'proto' or 'xml'")
+	}
+
+	// Output sink
+	outfmt := c.String("outfmt")
 	outpath := c.String("outpath")
 	if len(outpath) == 0 {
 		return errors.New("outpath is required")
 	}
 
-	switch out {
+	var writer wikirel.PageBlockWriter
+	switch outfmt {
 	case "badger":
-		if path.Dir(outpath) != outpath {
-			return errors.New("when using 'badger', output path must point to a directory")
+		writer, err = bdg.NewPageWriter(outpath)
+		if err != nil {
+			return fmt.Errorf("failed to create badger writer, err: %w", err)
 		}
 	case "proto":
-		if path.Dir(outpath) == outpath {
-			return errors.New("when using 'proto', output path must point to a file")
+		writer, err = wikirel.NewProtoBlockWriter(outpath)
+		if err != nil {
+			return fmt.Errorf("failed to create proto writer, err: %w", err)
 		}
 	default:
 		fmt.Println("output must be of type 'badger' or 'proto'")
 	}
+	defer profile.Start(profile.CPUProfile, profile.ProfilePath(".")).Stop()
 
-	return nil
-}
+	defer func() {
+		check(reader.Close())
+		check(writer.Close())
+	}()
 
-// readXML reads wikipedia pages from the provided XML files, parses
-// the XML pages into Protobuf pages, and puts them on pageC.
-func readXML(
-	ctx context.Context,
-	idxfile string,
-	pagesfile string,
-	nworker int,
-	pageC chan *wikirel.FullPage,
-) error {
-	defer close(pageC)
-	r, err := wikixml.ReadMultiStream(context.Background(), idxfile, pagesfile, nworker)
-	if err != nil {
-		return err
-	}
-	for {
-		pages, err := r.Next()
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-		for _, page := range pages {
-			select {
-			case pageC <- wikirel.NewFullPageFromXML(&page):
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-	}
+	return wikirel.Transfer(reader, writer)
 }
 
 func writeXMLToProto(idxfile string, pagesfile string, protofile string) {
@@ -124,60 +113,59 @@ func writeXMLToProto(idxfile string, pagesfile string, protofile string) {
 		fmt.Println("elapsed: ", time.Now().Sub(start))
 	}(time.Now())
 
-	f, err := os.OpenFile(protofile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	check(err)
-	buf := bufio.NewWriter(f)
-	zs := zstd.NewWriter(buf)
-	protow := protoio.NewWriter(zs)
+	// f, err := os.OpenFile(protofile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	// check(err)
+	// buf := bufio.NewWriter(f)
+	// zs := zstd.NewWriter(buf)
+	// protow := protoio.NewWriter(zs)
 
-	defer func() {
-		check(zs.Close())
-		check(buf.Flush())
-		check(f.Close())
-	}()
+	// defer func() {
+	// 	check(zs.Close())
+	// 	check(buf.Flush())
+	// 	check(f.Close())
+	// }()
 
-	i := 0
-	ntotal := 0
-	for {
-		i++
-		pages, err := r.Next()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			check(err)
-			break
-		}
-		for _, page := range pages {
-			revisions := make([]*wikirel.Revision, len(page.Revisions))
-			for i, p := range page.Revisions {
-				t, err := time.Parse(time.RFC3339, p.Timestamp)
-				check(err)
-				ts, err := ptypes.TimestampProto(t)
-				check(err)
-				revisions[i] = &wikirel.Revision{
-					Id:   int32(p.ID),
-					Ts:   ts,
-					Text: p.Text,
-				}
-			}
+	// i := 0
+	// ntotal := 0
+	// for {
+	// 	i++
+	// 	pages, err := r.Next()
+	// 	if err != nil {
+	// 		if err == io.EOF {
+	// 			break
+	// 		}
+	// 		check(err)
+	// 		break
+	// 	}
+	// 	for _, page := range pages {
+	// 		revisions := make([]*wikirel.Revision, len(page.Revisions))
+	// 		for i, p := range page.Revisions {
+	// 			t, err := time.Parse(time.RFC3339, p.Timestamp)
+	// 			check(err)
+	// 			ts, err := ptypes.TimestampProto(t)
+	// 			check(err)
+	// 			revisions[i] = &wikirel.Revision{
+	// 				Id:   int32(p.ID),
+	// 				Ts:   ts,
+	// 				Text: p.Text,
+	// 			}
+	// 		}
 
-			p := &wikirel.FullPage{
-				Id:        page.ID,
-				Title:     page.Title,
-				Namespace: page.Namespace,
-				Revisions: revisions,
-			}
-			if page.Redirect != nil {
-				p.Title = page.Redirect.Title
-			}
+	// 		p := &wikirel.Page{
+	// 			Id:        page.ID,
+	// 			Title:     page.Title,
+	// 			Namespace: page.Namespace,
+	// 			Revisions: revisions,
+	// 		}
+	// 		if page.Redirect != nil {
+	// 			p.Title = page.Redirect.Title
+	// 		}
 
-			check(protow.WriteMsg(p))
-		}
-		ntotal += len(pages)
-		fmt.Printf("%v\r", ntotal)
-	}
-	fmt.Println(i)
+	// 		check(protow.WriteMsg(p))
+	// 	}
+	// 	ntotal += len(pages)
+	// 	fmt.Printf("%v\r", ntotal)
+	// }
 }
 
 func check(err error) {

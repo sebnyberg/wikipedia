@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/sebnyberg/wikirel"
 )
 
 // PageReader reads Wikipedia pages from an input stream.
@@ -35,32 +33,31 @@ func NewPageReader(r io.Reader) *PageReader {
 
 // Read returns the next page from the reader.
 // If there are no more pages, io.EOF is returned.
-func (r *PageReader) Read() (*wikirel.FullPage, error) {
+func (r *PageReader) Read(p *Page) error {
 	// Skip <mediawiki> and <siteinfo> tag once per document
 	if !r.headerSkipped {
 		// Skip <mediawiki> tag
 		if _, err := r.dec.Token(); err != nil {
-			return nil, fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
+			return fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
 		}
 
 		// Skip <siteinfo> tag
 		si := struct{}{}
 		if err := r.dec.Decode(&si); err != nil {
-			return nil, fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
+			return fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
 		}
 
 		r.headerSkipped = true
 	}
 
-	p := new(Page)
 	if err := r.dec.Decode(p); err != nil {
 		if err == io.EOF {
-			return nil, io.EOF
+			return io.EOF
 		}
-		return nil, fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
+		return fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
 	}
 
-	return NewFullPage(p), nil
+	return nil
 }
 
 // ReadPagesFromOffset puts the next chunk of pages into the provided slice.
@@ -249,9 +246,9 @@ type MultiStreamReader struct {
 	err     error
 }
 
-// NewMultiReader creates a reader that returns pages from the multi-stream download.
+// NewMultiStreamReader creates a reader that returns pages from the multi-stream download.
 // Both files should be provided in bzip2 format.
-func ReadMultiStream(
+func NewMultiStreamReader(
 	ctx context.Context,
 	idxfile string,
 	pagefile string,

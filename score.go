@@ -2,13 +2,13 @@ package wikirel
 
 func Score(a *LinkedPage, b *LinkedPage) float32 {
 	aLinks := make(map[string]bool, len(a.Links))
-	aLinks[a.Title] = true
+	aLinks[a.PageTitle] = true
 	for _, link := range a.Links {
 		aLinks[link.TargetTitle] = true
 	}
 
 	bLinks := make(map[string]bool, len(b.Links))
-	bLinks[b.Title] = true
+	bLinks[b.PageTitle] = true
 	for _, link := range b.Links {
 		bLinks[link.TargetTitle] = true
 	}
