@@ -1,25 +1,27 @@
-package wikirel
+package wikipedia
 
 import (
 	"fmt"
 	"io"
-	"time"
-
-	"github.com/sebnyberg/wikirel/protoutil"
-	"github.com/sebnyberg/wikirel/wikixml"
 )
 
+// PageStore stores individual pages.
 type PageStore interface {
 	Get(id int32) (Page, error)
 	Set(id int32, p *Page) error
 }
 
+// PageBlockReader reads blocks of pages in Protobuf format.
 type PageBlockReader interface {
+	// Next returns the next block of pages.
+	// If there are no more pages, io.EOF is returned.
 	Next() ([]Page, error)
 	io.Closer
 }
 
+// PageBlockWriter writes blocks of pages in Protobuf format.
 type PageBlockWriter interface {
+	// Write writes a block of pages.
 	Write([]Page) error
 	io.Closer
 }
@@ -44,26 +46,4 @@ func Transfer(from PageBlockReader, to PageBlockWriter) error {
 			return err
 		}
 	}
-}
-
-func NewPageFromXML(xml *wikixml.Page) Page {
-	revisions := make([]*Revision, len(xml.Revisions))
-	for i, p := range xml.Revisions {
-		ts := protoutil.MustParseTSFromString(time.RFC3339, p.Timestamp)
-		revisions[i] = &Revision{
-			Id:   int32(p.ID),
-			Ts:   ts,
-			Text: p.Text,
-		}
-	}
-	p := Page{
-		Id:        xml.ID,
-		Title:     xml.Title,
-		Namespace: xml.Namespace,
-		Revisions: revisions,
-	}
-	if xml.Redirect != nil {
-		p.RedirectTitle = xml.Redirect.Title
-	}
-	return p
 }

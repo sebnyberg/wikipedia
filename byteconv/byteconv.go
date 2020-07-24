@@ -1,4 +1,4 @@
-package tbyte
+package byteconv
 
 import "encoding/binary"
 

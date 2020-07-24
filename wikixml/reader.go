@@ -252,7 +252,7 @@ func NewMultiStreamReader(
 	ctx context.Context,
 	idxfile string,
 	pagefile string,
-	nworkers int,
+	nworker int,
 ) (*MultiStreamReader, error) {
 
 	r := new(MultiStreamReader)
@@ -270,8 +270,8 @@ func NewMultiStreamReader(
 	r.pages = make(chan []Page, 1000)
 
 	var wg sync.WaitGroup
-	wg.Add(nworkers)
-	for i := 0; i < nworkers; i++ {
+	wg.Add(nworker)
+	for i := 0; i < nworker; i++ {
 		go r.pageWorker(&wg)
 	}
 	go func() {

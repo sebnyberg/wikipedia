@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"github.com/dgraph-io/badger"
-	"github.com/sebnyberg/wikirel"
-	"github.com/sebnyberg/wikirel/tbyte"
+	"github.com/sebnyberg/wikipedia"
+	"github.com/sebnyberg/wikipedia/byteconv"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 )
@@ -18,14 +18,14 @@ type pageEntry struct {
 
 type pageWriter struct {
 	db    *badger.DB
-	pageC chan []wikirel.Page
+	pageC chan []wikipedia.Page
 	g     *errgroup.Group
 	ctx   context.Context
 	i     int
 	mtx   sync.RWMutex
 }
 
-func NewPageWriter(outpath string) (wikirel.PageBlockWriter, error) {
+func NewPageWriter(outpath string) (wikipedia.PageBlockWriter, error) {
 	// Open the Badger database located in the /tmp/badger directory.
 	// It will be created if it doesn't exist.
 	db, err := badger.Open(badger.DefaultOptions(outpath))
@@ -37,7 +37,7 @@ func NewPageWriter(outpath string) (wikirel.PageBlockWriter, error) {
 
 	w := &pageWriter{
 		db:    db,
-		pageC: make(chan []wikirel.Page, 1000),
+		pageC: make(chan []wikipedia.Page, 1000),
 		g:     g,
 		ctx:   ctx,
 	}
@@ -53,7 +53,7 @@ func (w *pageWriter) Close() error {
 	return w.db.Close()
 }
 
-func (w *pageWriter) Write(pageblock []wikirel.Page) error {
+func (w *pageWriter) Write(pageblock []wikipedia.Page) error {
 	w.g.Go(func() error {
 		return w.db.Update(func(txn *badger.Txn) error {
 			for _, p := range pageblock {
@@ -61,7 +61,7 @@ func (w *pageWriter) Write(pageblock []wikirel.Page) error {
 				if err != nil {
 					return err
 				}
-				if err := txn.Set(tbyte.Int32ToBytes(p.Id), b); err != nil {
+				if err := txn.Set(byteconv.Int32ToBytes(p.Id), b); err != nil {
 					return err
 				}
 			}

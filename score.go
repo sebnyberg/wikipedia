@@ -1,4 +1,4 @@
-package wikirel
+package wikipedia
 
 func Score(a *LinkedPage, b *LinkedPage) float32 {
 	aLinks := make(map[string]bool, len(a.Links))

@@ -1,4 +1,4 @@
-package wikirel
+package wikipedia
 
 import (
 	"bufio"
@@ -16,6 +16,14 @@ type protoWriter struct {
 	close  func() error
 }
 
+// NewProtoBlockWriter returns a writer that puts blocks of pages into
+// a file in zstd-compressed length-delimited protobuf format.
+//
+// If the provided path already exists, an error is returned.
+//
+// The length-delimited format weaves serialized Protobuf messages with
+// their length as a prefix, which allows for reading messages one by one
+// from the file, acting like an append-only log of serialized messages.
 func NewProtoBlockWriter(path string) (PageBlockWriter, error) {
 	// Force users to recognize the somewhat unorthodox protobuf file format
 	if !strings.HasSuffix(path, ".ld.zs") {
@@ -69,12 +77,15 @@ type protoReader struct {
 	blocksize int
 }
 
+// NewProtoBlockReader returns a reader that retrieves blocks of pages
+// from the provided path.
+//
+// If a file does not exist at the provided path, an error is returned.
+//
+// The file is expected to be zstd-compressed append-only (length-delimited)
+// log of serialized Protobuf messages. To write messages in this format,
+// use the NewProtoBlockWriter() constructor.
 func NewProtoBlockReader(path string, blocksize int) (PageBlockReader, error) {
-	// Force users to recognize the somewhat unorthodox protobuf file format
-	if !strings.HasSuffix(path, ".ld.zs") {
-		return nil, errors.New("when using protobuf, path should end with .ld.zs")
-	}
-
 	f, err := os.OpenFile(path, os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err

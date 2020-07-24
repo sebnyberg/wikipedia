@@ -9,7 +9,7 @@ import (
 	_ "net/http/pprof"
 
 	_ "github.com/mkevac/debugcharts"
-	"github.com/sebnyberg/wikirel/cmd/wiki/cmd"
+	"github.com/sebnyberg/wikipedia/cmd/wiki/cmd"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,7 +24,7 @@ func main() {
 	}
 }
 
-const pkgName string = "wikirel"
+const pkgName string = "wikipedia"
 
 func NewApp() *cli.App {
 	app := &cli.App{

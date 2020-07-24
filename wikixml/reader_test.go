@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/sebnyberg/wikirel/wikixml"
+	"github.com/sebnyberg/wikipedia/wikixml"
 )
 
 func Test_PageReader(t *testing.T) {

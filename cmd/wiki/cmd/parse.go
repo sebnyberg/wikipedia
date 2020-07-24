@@ -4,11 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/pkg/profile"
-	"github.com/sebnyberg/wikirel"
-	"github.com/sebnyberg/wikirel/bdg"
+	"github.com/sebnyberg/wikipedia"
+	"github.com/sebnyberg/wikipedia/bdg"
 	"github.com/urfave/cli/v2"
 )
 
@@ -55,11 +54,11 @@ func parseAction(c *cli.Context) error {
 		return errors.New("pagefile is required")
 	}
 
-	var reader wikirel.PageBlockReader
+	var reader wikipedia.PageBlockReader
 	var err error
 	switch c.String("infmt") {
 	case "proto":
-		reader, err = wikirel.NewProtoBlockReader(pagefile, 100)
+		reader, err = wikipedia.NewProtoBlockReader(pagefile, 100)
 		if err != nil {
 			return err
 		}
@@ -68,7 +67,7 @@ func parseAction(c *cli.Context) error {
 		if len(idxfile) == 0 {
 			return errors.New("idxfile is required")
 		}
-		reader, err = wikirel.GetXMLPageReader(idxfile, pagefile)
+		reader, err = wikipedia.GetXMLPageReader(idxfile, pagefile)
 		if err != nil {
 			return err
 		}
@@ -83,7 +82,7 @@ func parseAction(c *cli.Context) error {
 		return errors.New("outpath is required")
 	}
 
-	var writer wikirel.PageBlockWriter
+	var writer wikipedia.PageBlockWriter
 	switch outfmt {
 	case "badger":
 		writer, err = bdg.NewPageWriter(outpath)
@@ -91,7 +90,7 @@ func parseAction(c *cli.Context) error {
 			return fmt.Errorf("failed to create badger writer, err: %w", err)
 		}
 	case "proto":
-		writer, err = wikirel.NewProtoBlockWriter(outpath)
+		writer, err = wikipedia.NewProtoBlockWriter(outpath)
 		if err != nil {
 			return fmt.Errorf("failed to create proto writer, err: %w", err)
 		}
@@ -105,67 +104,7 @@ func parseAction(c *cli.Context) error {
 		check(writer.Close())
 	}()
 
-	return wikirel.Transfer(reader, writer)
-}
-
-func writeXMLToProto(idxfile string, pagesfile string, protofile string) {
-	defer func(start time.Time) {
-		fmt.Println("elapsed: ", time.Now().Sub(start))
-	}(time.Now())
-
-	// f, err := os.OpenFile(protofile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	// check(err)
-	// buf := bufio.NewWriter(f)
-	// zs := zstd.NewWriter(buf)
-	// protow := protoio.NewWriter(zs)
-
-	// defer func() {
-	// 	check(zs.Close())
-	// 	check(buf.Flush())
-	// 	check(f.Close())
-	// }()
-
-	// i := 0
-	// ntotal := 0
-	// for {
-	// 	i++
-	// 	pages, err := r.Next()
-	// 	if err != nil {
-	// 		if err == io.EOF {
-	// 			break
-	// 		}
-	// 		check(err)
-	// 		break
-	// 	}
-	// 	for _, page := range pages {
-	// 		revisions := make([]*wikirel.Revision, len(page.Revisions))
-	// 		for i, p := range page.Revisions {
-	// 			t, err := time.Parse(time.RFC3339, p.Timestamp)
-	// 			check(err)
-	// 			ts, err := ptypes.TimestampProto(t)
-	// 			check(err)
-	// 			revisions[i] = &wikirel.Revision{
-	// 				Id:   int32(p.ID),
-	// 				Ts:   ts,
-	// 				Text: p.Text,
-	// 			}
-	// 		}
-
-	// 		p := &wikirel.Page{
-	// 			Id:        page.ID,
-	// 			Title:     page.Title,
-	// 			Namespace: page.Namespace,
-	// 			Revisions: revisions,
-	// 		}
-	// 		if page.Redirect != nil {
-	// 			p.Title = page.Redirect.Title
-	// 		}
-
-	// 		check(protow.WriteMsg(p))
-	// 	}
-	// 	ntotal += len(pages)
-	// 	fmt.Printf("%v\r", ntotal)
-	// }
+	return wikipedia.Transfer(reader, writer)
 }
 
 func check(err error) {

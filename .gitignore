@@ -5,7 +5,7 @@ data
 *.pprof
 *.test
 tmp
-wikirel
+wikipedia
 .vscode
 cmd/playground
 main

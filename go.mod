@@ -1,4 +1,4 @@
-module github.com/sebnyberg/wikirel
+module github.com/sebnyberg/wikipedia
 
 go 1.14
 
