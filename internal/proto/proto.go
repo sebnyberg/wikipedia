@@ -1,22 +1,21 @@
-package wikipedia
+package proto
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/DataDog/zstd"
 	"github.com/sebnyberg/protoio"
+	"github.com/sebnyberg/wikipedia"
 )
 
-type protoWriter struct {
+type writer struct {
 	protow *protoio.Writer
 	close  func() error
 }
 
-// NewProtoBlockWriter returns a writer that puts blocks of pages into
+// NewPageWriter returns a writer that puts pages into
 // a file in zstd-compressed length-delimited protobuf format.
 //
 // If the provided path already exists, an error is returned.
@@ -24,12 +23,7 @@ type protoWriter struct {
 // The length-delimited format weaves serialized Protobuf messages with
 // their length as a prefix, which allows for reading messages one by one
 // from the file, acting like an append-only log of serialized messages.
-func NewProtoBlockWriter(path string) (PageBlockWriter, error) {
-	// Force users to recognize the somewhat unorthodox protobuf file format
-	if !strings.HasSuffix(path, ".ld.zs") {
-		return nil, errors.New("when using protobuf, path should end with .ld.zs")
-	}
-
+func NewPageWriter(path string) (wikipedia.PageWriter, error) {
 	f, err := os.OpenFile(path, os.O_EXCL|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
@@ -52,26 +46,25 @@ func NewProtoBlockWriter(path string) (PageBlockWriter, error) {
 		return nil
 	}
 
-	return &protoWriter{
+	return &writer{
 		protow: protow,
 		close:  close,
 	}, nil
 }
 
-func (w *protoWriter) Close() error {
+func (w *writer) Close() error {
 	return w.close()
 }
 
-func (w *protoWriter) Write(pages []Page) error {
-	for _, p := range pages {
-		if err := w.protow.WriteMsg(&p); err != nil {
-			return err
-		}
+func (w *writer) Write(page *wikipedia.Page) error {
+	if err := w.protow.WriteMsg(page); err != nil {
+		return err
 	}
+
 	return nil
 }
 
-type protoReader struct {
+type reader struct {
 	r         *protoio.Reader
 	close     func() error
 	blocksize int
@@ -85,7 +78,7 @@ type protoReader struct {
 // The file is expected to be zstd-compressed append-only (length-delimited)
 // log of serialized Protobuf messages. To write messages in this format,
 // use the NewProtoBlockWriter() constructor.
-func NewProtoBlockReader(path string, blocksize int) (PageBlockReader, error) {
+func NewProtoBlockReader(path string) (wikipedia.PageReader, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
@@ -105,31 +98,23 @@ func NewProtoBlockReader(path string, blocksize int) (PageBlockReader, error) {
 		return nil
 	}
 
-	return &protoReader{
-		r:         r,
-		close:     close,
-		blocksize: blocksize,
+	return &reader{
+		r:     r,
+		close: close,
 	}, nil
 }
 
-func (r *protoReader) Close() error {
+func (r *reader) Close() error {
 	return r.close()
 }
 
-func (r *protoReader) Next() ([]Page, error) {
-	block := make([]Page, 0, r.blocksize)
-	for i := 0; i < r.blocksize; i++ {
-		var m Page
-		if err := r.r.ReadMsg(&m); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
+func (r *reader) Next() (*wikipedia.Page, error) {
+	var p wikipedia.Page
+	if err := r.r.ReadMsg(&p); err != nil {
+		if err == io.EOF {
+			return nil, io.EOF
 		}
-		block = append(block, m)
+		return nil, err
 	}
-	if len(block) == 0 {
-		return nil, io.EOF
-	}
-	return block, nil
+	return &p, nil
 }

@@ -12,21 +12,21 @@ type PageStore interface {
 }
 
 // PageBlockReader reads blocks of pages in Protobuf format.
-type PageBlockReader interface {
+type PageReader interface {
 	// Next returns the next block of pages.
 	// If there are no more pages, io.EOF is returned.
-	Next() ([]Page, error)
+	Next() (*Page, error)
 	io.Closer
 }
 
 // PageBlockWriter writes blocks of pages in Protobuf format.
-type PageBlockWriter interface {
+type PageWriter interface {
 	// Write writes a block of pages.
-	Write([]Page) error
+	Write(*Page) error
 	io.Closer
 }
 
-func Transfer(from PageBlockReader, to PageBlockWriter) error {
+func Transfer(from PageReader, to PageWriter) error {
 	i := 0
 	n := 0
 	for {

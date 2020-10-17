@@ -6,11 +6,12 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/sebnyberg/wikipedia"
 	"github.com/sebnyberg/wikipedia/wikixml"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type xmlReader struct {
+type reader struct {
 	r   *wikixml.MultiStreamReader
 	err error
 }
@@ -18,20 +19,20 @@ type xmlReader struct {
 // GetXMLPageReader returns a reader that retrieves blocks of pages from the
 // provided files. The provided index and pagefile should be in the Wikipedia
 // multi-stream download format.
-func GetXMLPageReader(indexfile string, pagefile string) (PageBlockReader, error) {
+func GetXMLPageReader(indexfile string, pagefile string) (wikipedia.PageReader, error) {
 	nworker := runtime.NumCPU()
 	r, err := wikixml.NewMultiStreamReader(context.Background(), indexfile, pagefile, nworker)
 	if err != nil {
 		return nil, err
 	}
-	return &xmlReader{r: r}, nil
+	return &reader{r: r}, nil
 }
 
-func (r *xmlReader) Close() error {
+func (r *reader) Close() error {
 	return nil
 }
 
-func (r *xmlReader) Next() ([]Page, error) {
+func (r *reader) Next() (*Page, error) {
 	xmlblock, err := r.r.Next()
 	if err != nil {
 		return nil, err

@@ -1,4 +1,4 @@
-package wikixml_test
+package wikidownload_test
 
 import (
 	"encoding/xml"

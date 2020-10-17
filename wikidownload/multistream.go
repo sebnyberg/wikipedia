@@ -1,4 +1,4 @@
-package wikixml
+package wikidownload
 
 import (
 	"bufio"
@@ -14,51 +14,51 @@ import (
 	"sync"
 )
 
-// PageReader reads Wikipedia pages from an input stream.
-type PageReader struct {
-	dec           *xml.Decoder
-	headerSkipped bool
-}
+// // PageReader reads Wikipedia pages from an input stream.
+// type PageReader struct {
+// 	dec           *xml.Decoder
+// 	headerSkipped bool
+// }
 
-// NewPageReader returns a new page reader reading from r.
-//
-// The provided reader is expected to read plaintext XML from
-// the non-multi-stream Wikipedia database download.
-//
-func NewPageReader(r io.Reader) *PageReader {
-	dec := xml.NewDecoder(r)
+// // NewPageReader returns a new page reader reading from r.
+// //
+// // The provided reader is expected to read plaintext XML from
+// // the non-multi-stream Wikipedia database download.
+// //
+// func NewPageReader(r io.Reader) *PageReader {
+// 	dec := xml.NewDecoder(r)
 
-	return &PageReader{dec: dec}
-}
+// 	return &PageReader{dec: dec}
+// }
 
-// Read returns the next page from the reader.
-// If there are no more pages, io.EOF is returned.
-func (r *PageReader) Read(p *Page) error {
-	// Skip <mediawiki> and <siteinfo> tag once per document
-	if !r.headerSkipped {
-		// Skip <mediawiki> tag
-		if _, err := r.dec.Token(); err != nil {
-			return fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
-		}
+// // Read returns the next page from the reader.
+// // If there are no more pages, io.EOF is returned.
+// func (r *PageReader) Read(p *Page) error {
+// 	// Skip <mediawiki> and <siteinfo> tag once per document
+// 	if !r.headerSkipped {
+// 		// Skip <mediawiki> tag
+// 		if _, err := r.dec.Token(); err != nil {
+// 			return fmt.Errorf("%w: could not parse mediawiki tag, err: %v", ErrFailedToParse, err)
+// 		}
 
-		// Skip <siteinfo> tag
-		si := struct{}{}
-		if err := r.dec.Decode(&si); err != nil {
-			return fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
-		}
+// 		// Skip <siteinfo> tag
+// 		si := struct{}{}
+// 		if err := r.dec.Decode(&si); err != nil {
+// 			return fmt.Errorf("%w: could not parse siteinfo tag, err: %v", ErrFailedToParse, err)
+// 		}
 
-		r.headerSkipped = true
-	}
+// 		r.headerSkipped = true
+// 	}
 
-	if err := r.dec.Decode(p); err != nil {
-		if err == io.EOF {
-			return io.EOF
-		}
-		return fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
-	}
+// 	if err := r.dec.Decode(p); err != nil {
+// 		if err == io.EOF {
+// 			return io.EOF
+// 		}
+// 		return fmt.Errorf("%w: could not parse page, err: %v", ErrFailedToParse, err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // ReadPagesFromOffset puts the next chunk of pages into the provided slice.
 // If the slice cannot fit into the provided pages slice, a new slice will be created.

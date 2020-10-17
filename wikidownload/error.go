@@ -1,4 +1,4 @@
-package wikixml
+package wikidownload
 
 import "errors"
 
