@@ -12,7 +12,7 @@ require (
 	github.com/pkg/profile v1.5.0
 	github.com/sebnyberg/protoio v1.0.1
 	github.com/urfave/cli/v2 v2.2.0
-	golang.org/x/net v0.7.0 // indirect
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
+	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/sync v0.1.0
 	google.golang.org/protobuf v1.25.0
 )
